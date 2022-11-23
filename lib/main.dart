@@ -1,7 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-final counterProvider = StateProvider.autoDispose((ref) => 0);
+abstract class WebsocketClient {
+  Stream<int> getCounterStream([int start]);
+}
+
+class FakeWebscoketClient implements WebsocketClient {
+  @override
+  Stream<int> getCounterStream([int start = 0]) async* {
+    int i = start;
+    while (true) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      yield i++;
+      //yield adds a value to the output stream of the surrounding
+      //async* function. It's like return, but doesn't terminate the function.
+    }
+  }
+}
+
+final webscoketClientProvider = Provider<WebsocketClient>((ref) {
+  return FakeWebscoketClient();
+});
+final counterProvider =
+    StreamProvider.family.autoDispose<int, int>((ref, start) {
+  final wsClient = ref.watch(webscoketClientProvider);
+  return wsClient.getCounterStream(start);
+});
 //normal provider wont be changed but StateProvider can be changed
 
 void main() {
@@ -55,34 +79,15 @@ class CounterPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final int counter = ref.watch(counterProvider);
-    ref.listen(counterProvider, (previous, next) {
-      if (int.parse((next).toString()) >= 5) {
-        showDialog(
-            context: context,
-            builder: (context) {
-              return AlertDialog(
-                title: const Text('Warning'),
-                content: const Text('Counter dangerously high'),
-                actions: [
-                  TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                    },
-                    child: const Text('ok'),
-                  )
-                ],
-              );
-            });
-      }
-    });
+    final AsyncValue<int> counter = ref.watch(counterProvider(5));
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Counter'),
         actions: [
           IconButton(
             onPressed: () {
-              ref.refresh(counterProvider);
+              ref.refresh(counterProvider(5));
             },
             icon: const Icon(Icons.refresh),
           ),
@@ -90,15 +95,14 @@ class CounterPage extends ConsumerWidget {
       ),
       body: Center(
         child: Text(
-          counter.toString(),
+          counter
+              .when(
+                  data: (int value) => value,
+                  error: (Object e, _) => 0,
+                  loading: () => 0)
+              .toString(),
           style: Theme.of(context).textTheme.displayMedium,
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        child: const Icon(Icons.add),
-        onPressed: () {
-          ref.read(counterProvider.notifier).state++;
-        },
       ),
     );
   }
